@@ -1,0 +1,13 @@
+﻿Band,Group,NumNodes,RepresentativeNodes
+Delta,HC,2,"T4(40.0%), T3(33.3%)"
+Delta,MCI,1,Fp2(34.5%)
+Delta,AD,0,None
+Theta,HC,0,None
+Theta,MCI,0,None
+Theta,AD,2,"T3(34.5%), T4(34.5%)"
+Alpha,HC,2,"C4(33.3%), T4(30.0%)"
+Alpha,MCI,0,None
+Alpha,AD,1,T5(31.0%)
+Beta,HC,2,"T4(30.0%), C3(30.0%)"
+Beta,MCI,0,None
+Beta,AD,0,None
