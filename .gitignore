@@ -1,0 +1,19 @@
+# 数据目录
+data/
+output/
+results/
+Matlab_output/
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# 编辑器 & 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
