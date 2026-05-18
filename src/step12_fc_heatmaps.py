@@ -1,8 +1,23 @@
+"""
+Step 12: FC heatmap visualization.
+
+Render heatmaps from group-average FC matrices after post-processing and
+statistical analysis outputs have been generated.
+"""
+
 import os
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
+
+from pipeline_config import (
+    BAND_FOLDERS_BY_LABEL,
+    BANDS,
+    FC_TYPES_LOWER,
+    GROUP_NAMES,
+    RESULTS_DIR,
+)
 
 BASE_DIR = Path(__file__).parent.parent
 
@@ -14,18 +29,13 @@ plt.rcParams['font.size'] = 20  # 五号字体约为10.5磅
 
 # 请确保此路径与您保存组平均矩阵的路径一致
 DATA_PATH_ROOT = BASE_DIR / 'output' / 'mean'
-FIGURE_OUTPUT_DIR = BASE_DIR / 'results' / 'fc_heatmaps'
+FIGURE_OUTPUT_DIR = RESULTS_DIR / 'fc_heatmaps'
 
 # 定义组、频段和网络
-GROUPS = ['HC', 'MCI', 'AD']
-BANDS_INFO = {
-    'Delta': '0.5-4(Delta)',
-    'Theta': '4-8(Theta)',
-    'Alpha': '8-13(Alpha)',
-    'Beta': '13-40(Beta)'
-}
-NETWORKS = ['lofc', 'hofc', 'ahofc']
-BAND_NAMES = list(BANDS_INFO.keys())
+GROUPS = GROUP_NAMES
+BANDS_INFO = BAND_FOLDERS_BY_LABEL
+NETWORKS = FC_TYPES_LOWER
+BAND_NAMES = BANDS
 
 MATRIX_SIZE = 16 # 每个子矩阵的大小 (16x16)
 

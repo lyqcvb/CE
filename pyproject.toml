@@ -11,4 +11,10 @@ dependencies = [
     "numpy>=2.4.3",
     "pandas>=3.0.1",
     "scipy>=1.17.1",
+    "tqdm>=4.67.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
 ]
