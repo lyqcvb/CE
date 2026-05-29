@@ -2,7 +2,7 @@
 data/
 output/
 results/
-Matlab_output/
+writing/
 
 # Python 缓存
 __pycache__/

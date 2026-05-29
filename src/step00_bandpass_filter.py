@@ -152,7 +152,7 @@ def process_file(file_path: Path, skip_existing: bool = False):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Apply bandpass filtering for configured EEG bands, including 30-40 Hz Gamma."
+        description="Apply bandpass filtering for configured EEG bands."
     )
     parser.add_argument("--group", type=str, choices=GROUPS, help="Only process one group")
     parser.add_argument("--raw-root", type=Path, default=RAW_DATA_ROOT, help="Root directory of raw EEG data")

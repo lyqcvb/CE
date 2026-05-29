@@ -8,7 +8,7 @@ import numpy as np
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SRC_DIR))
 
-from step02_connectivity import compute_ahofc, compute_hofc, compute_lofc, proportional_threshold
+from step02_connectivity import compute_hofc, compute_lofc, proportional_threshold
 from step03_connection_strength import average_connection_strength
 
 
@@ -42,7 +42,7 @@ def test_average_connection_strength_matches_directed_off_diagonal() -> None:
     np.testing.assert_allclose(mean_conn, 0.35)
 
 
-def test_lofc_hofc_ahofc_smoke_shapes_and_finite_values() -> None:
+def test_lofc_hofc_smoke_shapes_and_finite_values() -> None:
     t = np.linspace(0.0, 2.0 * np.pi, 128, endpoint=False)
     eeg = np.vstack(
         [
@@ -55,14 +55,11 @@ def test_lofc_hofc_ahofc_smoke_shapes_and_finite_values() -> None:
 
     lofc = compute_lofc(eeg)
     hofc = compute_hofc(lofc)
-    ahofc = compute_ahofc(lofc, hofc)
 
     assert lofc.shape == (4, 4)
     assert hofc.shape == (4, 4)
-    assert ahofc.shape == (4, 4)
     assert np.isfinite(lofc).all()
     assert np.isfinite(hofc).all()
-    assert np.isfinite(ahofc).all()
     np.testing.assert_allclose(np.diag(lofc), 1.0)
     np.testing.assert_allclose(hofc, hofc.T)
 

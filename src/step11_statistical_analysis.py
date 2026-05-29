@@ -1,8 +1,8 @@
 """
 step11_statistical_analysis.py
 ======================
-Statistical analysis entrypoint for scalar metrics, rich-club individual
-means, and target attack stability curves.
+Statistical analysis entrypoint for scalar metrics and target attack stability
+curves.
 
 The analysis uses a three-group omnibus test before post-hoc pairwise tests:
 
@@ -463,12 +463,8 @@ def run_scalar_metric_tests(
             return f"core_stability | {fc_type}"
         if metric_name.startswith("FCStability"):
             return f"fc_stability | {fc_type}"
-        if metric_name.startswith(("RichClub_auc", "TargetAttack_auc_across_density")):
+        if metric_name.startswith("TargetAttack_auc_across_density"):
             return f"density_sensitivity | {fc_type}"
-        if metric_name.startswith(("RichClubMean_", "RichClubMax", "RichClubPeakK", "RichClubEnhancedKCount")):
-            return f"richclub_features | {fc_type}"
-        if metric_name.startswith(("Phi_w_", "WeightedRichClub")):
-            return f"weighted_richclub_features | {fc_type}"
         if metric_name.startswith("CoreOverlap_BinaryCE_WeightedCE"):
             return f"weighted_ce_overlap | {fc_type}"
         if metric_name.startswith(("Eglob_bin_density", "Clustering_bin_density")):
@@ -737,12 +733,8 @@ def _metric_family(metric_name: str) -> str:
         return f"core_stability | {fc_type}"
     if metric_name.startswith("FCStability"):
         return f"fc_stability | {fc_type}"
-    if metric_name.startswith(("RichClub_auc", "TargetAttack_auc_across_density")):
+    if metric_name.startswith("TargetAttack_auc_across_density"):
         return f"density_sensitivity | {fc_type}"
-    if metric_name.startswith(("RichClubMean_", "RichClubMax", "RichClubPeakK", "RichClubEnhancedKCount")):
-        return f"richclub_features | {fc_type}"
-    if metric_name.startswith(("Phi_w_", "WeightedRichClub")):
-        return f"weighted_richclub_features | {fc_type}"
     if metric_name.startswith("CoreOverlap_BinaryCE_WeightedCE"):
         return f"weighted_ce_overlap | {fc_type}"
     if metric_name.startswith(("Eglob_bin_auc", "Clustering_bin_auc")):
@@ -887,97 +879,6 @@ def run_mixed_effects_metrics(
 
     output_file = results_dir / "mixed_effects_metrics.csv"
     results_df.to_csv(output_file, index=False, encoding="utf-8-sig")
-    _print_result_summary(results_df, output_file)
-    return results_df
-
-
-def _load_richclub_individual_means(input_file: Path) -> pd.DataFrame:
-    """Read either multi-index or flat rich-club individual-mean tables."""
-    try:
-        multi_df = pd.read_csv(input_file, header=[0, 1])
-        if isinstance(multi_df.columns, pd.MultiIndex):
-            normalized: dict[str, pd.Series] = {}
-            for band, group in multi_df.columns:
-                band_str = str(band).strip()
-                group_str = str(group).strip()
-                if band_str in BANDS and group_str in GROUPS:
-                    normalized[f"{band_str}_{group_str}"] = pd.to_numeric(
-                        multi_df[(band, group)], errors="coerce"
-                    )
-            if normalized:
-                return pd.DataFrame(normalized)
-    except Exception:
-        pass
-
-    flat_df = pd.read_csv(input_file)
-    normalized_flat: dict[str, pd.Series] = {}
-    for col in flat_df.columns:
-        col_str = str(col)
-        col_compact = col_str.lower().replace(" ", "")
-        for band in BANDS:
-            for group in GROUPS:
-                key = f"{band}_{group}"
-                if key in normalized_flat:
-                    continue
-                if band.lower() in col_compact and group.lower() in col_compact:
-                    normalized_flat[key] = pd.to_numeric(flat_df[col], errors="coerce")
-
-    return pd.DataFrame(normalized_flat)
-
-
-def run_richclub_tests(
-    results_dir: Path = RESULTS_DIR,
-    fc_types: list[str] = FC_TYPES_UPPER,
-    bands: list[str] = BANDS,
-    groups: list[str] = GROUPS,
-) -> pd.DataFrame:
-    """Run binary normalized rich-club individual-mean tests."""
-    _ensure_results_dir(results_dir)
-
-    print("=" * 100)
-    print("二值归一化 Rich-club 个体均值统计检验: omnibus + post-hoc + FDR")
-    print("=" * 100)
-
-    records: list[dict[str, object]] = []
-    for fc_type in fc_types:
-        input_file = results_dir / f"richclub_individual_means_{fc_type}.csv"
-        if not input_file.exists():
-            print(f"警告: 文件 {input_file} 不存在，跳过")
-            continue
-
-        df = _load_richclub_individual_means(input_file)
-        if df.empty:
-            print(f"警告: 文件 {input_file} 未解析出有效列，跳过")
-            continue
-
-        for band in bands:
-            group_data = {
-                group: pd.to_numeric(df.get(f"{band}_{group}"), errors="coerce")
-                if f"{band}_{group}" in df.columns
-                else pd.Series(dtype=float)
-                for group in groups
-            }
-            records.extend(
-                _analyze_endpoint(
-                    context={
-                        "Analysis": "RichClub_IndividualMean",
-                        "FC_Type": fc_type,
-                        "Band": band,
-                        "Metric": "BinaryNormalizedRichClubMean",
-                    },
-                    group_data=group_data,
-                    groups=groups,
-                )
-            )
-
-    output_file = results_dir / "richclub_显著性分析.csv"
-    results_df = _finalize_results(
-        records,
-        output_file,
-        omnibus_scope="all rich-club omnibus tests",
-        posthoc_scope="all rich-club post-hoc tests after significant omnibus",
-    )
-
     _print_result_summary(results_df, output_file)
     return results_df
 
@@ -1202,7 +1103,6 @@ def run_all_statistical_tests() -> None:
     run_scalar_metric_tests()
     run_two_way_anova_metrics()
     run_mixed_effects_metrics()
-    run_richclub_tests()
     run_targetattack_tests()
 
 
@@ -1212,7 +1112,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "command",
         nargs="?",
         default="all",
-        choices=["all", "scalar", "two-way-anova", "mixed-effects", "richclub", "targetattack"],
+        choices=["all", "scalar", "two-way-anova", "mixed-effects", "targetattack"],
         help="执行任务名称，默认 all",
     )
     return parser
@@ -1230,8 +1130,6 @@ def main() -> None:
         run_two_way_anova_metrics()
     elif args.command == "mixed-effects":
         run_mixed_effects_metrics()
-    elif args.command == "richclub":
-        run_richclub_tests()
     elif args.command == "targetattack":
         run_targetattack_tests()
 

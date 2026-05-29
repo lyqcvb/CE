@@ -8,9 +8,8 @@ The implementation is split by processing order:
 3. step03_connection_strength.py
 4. step04_graph_metrics.py
 5. step05_hub_detection.py
-6. step06_rich_club.py
-7. step07_target_attack.py
-8. step08_summary_metrics.py
+6. step07_target_attack.py
+7. step08_summary_metrics.py
 
 Existing scripts can continue to use:
 
@@ -28,14 +27,11 @@ from step02_connectivity import (
     _validate_channel_time_data,
     _validate_connectivity_matrix,
     binarize,
-    compute_ahofc,
-    compute_associated_hofc,
     compute_envelope_correlation,
     compute_hofc,
     compute_lofc,
     compute_signed_lofc,
     compute_topographical_hofc,
-    compute_topographical_profile_correlation,
     fisher_z_transform_connectivity,
     proportional_threshold,
 )
@@ -67,16 +63,6 @@ from step05_hub_detection import (
     top_ratio_mask,
     topsis_closeness_scores,
 )
-from step06_rich_club import (
-    _randmio_dir,
-    _randmio_und,
-    compute_binary_normalized_rich_club,
-    compute_weighted_normalized_rich_club,
-    rich_club_bd,
-    rich_club_bu,
-    weighted_rich_club_observed,
-    weighted_rich_club,
-)
 from step07_target_attack import (
     compute_attack_by_order,
     compute_attack_curves,
@@ -91,11 +77,8 @@ __all__ = [
     "compute_lofc",
     "compute_signed_lofc",
     "fisher_z_transform_connectivity",
-    "compute_topographical_profile_correlation",
     "compute_topographical_hofc",
     "compute_hofc",
-    "compute_associated_hofc",
-    "compute_ahofc",
     "binarize",
     "proportional_threshold",
     "global_efficiency_bin",
@@ -120,12 +103,6 @@ __all__ = [
     "identify_weighted_hub_nodes",
     "identify_traditional_hubs",
     "top_ratio_mask",
-    "rich_club_bu",
-    "rich_club_bd",
-    "compute_binary_normalized_rich_club",
-    "weighted_rich_club",
-    "weighted_rich_club_observed",
-    "compute_weighted_normalized_rich_club",
     "compute_target_attack",
     "compute_attack_by_order",
     "compute_attack_curves",

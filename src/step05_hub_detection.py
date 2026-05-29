@@ -61,7 +61,7 @@ def betweenness_bin(graph: np.ndarray, directed: bool = False) -> np.ndarray:
     """
     Betweenness centrality used by CE on a thresholded binary network.
 
-    aHOFC uses a directed graph; LOFC/HOFC use an undirected graph.
+    Directed mode follows outgoing edge direction; LOFC/HOFC use undirected graphs.
     """
     graph = _prepare_binary_ce_graph(graph, directed=directed)
     n = graph.shape[0]
@@ -78,7 +78,7 @@ def closeness_centrality(graph: np.ndarray, directed: bool = False) -> np.ndarra
     """
     Harmonic closeness/nodal efficiency used by CE on a binary network.
 
-    For directed aHOFC, shortest paths follow outgoing edge direction.
+    For directed graphs, shortest paths follow outgoing edge direction.
     Unreachable nodes contribute 0 instead of forcing the whole node score to 0.
     """
     graph = _prepare_binary_ce_graph(graph, directed=directed)
@@ -314,7 +314,7 @@ def compute_ce(graph: np.ndarray, directed: bool = False) -> tuple[np.ndarray, n
     """
     Compute node centrality entropy (CE) on a thresholded binary network.
 
-    For directed aHOFC, degree/BC/CC use directed paths. The local entropy
+    For directed graphs, degree/BC/CC use directed paths. The local entropy
     neighborhood is the union of out-neighbors and in-neighbors, and the
     neighborhood entropy is normalized by log2(k_i).
     """

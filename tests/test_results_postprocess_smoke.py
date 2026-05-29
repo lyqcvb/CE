@@ -13,7 +13,6 @@ sys.path.insert(0, str(SRC_DIR))
 from step10_results_postprocess import (
     _read_csv_vector,
     compute_attack_feature_summary,
-    compute_richclub_feature_table,
     extract_targetattack_summary,
 )
 
@@ -90,35 +89,8 @@ def test_attack_feature_summary_computes_ce_control_differences() -> None:
     assert df.loc[0, "CE_vs_Random_AUC_Diff"] > 0.0
 
 
-def test_richclub_feature_table_extracts_high_k_features() -> None:
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        base = Path(tmp_dir)
-        output_dir = base / "output"
-        results_dir = base / "results"
-        path = output_dir / "rich_club" / "lofc" / "HC" / "1-4(Delta)"
-        path.mkdir(parents=True)
-        pd.DataFrame([[0.8, 1.1, 1.3, np.nan]]).to_csv(
-            path / "S1.csv",
-            index=False,
-            header=False,
-        )
-
-        df = compute_richclub_feature_table(
-            output_dir=output_dir,
-            results_dir=results_dir,
-            fc_types=["lofc"],
-            band_mapping={"1-4(Delta)": "Delta"},
-            groups=["HC"],
-        )
-
-    assert df is not None
-    assert df.loc[0, "RichClubEnhancedKCount"] == 2.0
-    assert df.loc[0, "RichClubPeakK"] == 3.0
-
-
 if __name__ == "__main__":
     test_read_csv_vector_handles_column_and_row_vectors()
     test_targetattack_summary_reads_column_curves()
     test_attack_feature_summary_computes_ce_control_differences()
-    test_richclub_feature_table_extracts_high_k_features()
     print("results postprocess smoke tests passed")

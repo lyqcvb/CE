@@ -3,7 +3,7 @@ step09_batch_pipeline.py
 ========================
 
 批量处理脚本：遍历 HC/MCI/AD 组、频段和被试，从 EEG .set 文件计算
-LOFC/HOFC/aHOFC 矩阵以及网络指标，并将结果写入 output/。
+LOFC/HOFC 矩阵以及网络指标，并将结果写入 output/。
 
 用法
 ----
@@ -20,7 +20,6 @@ LOFC/HOFC/aHOFC 矩阵以及网络指标，并将结果写入 output/。
 --------
   output/fc_matrices/{fc_type}/{group}/{band}/{subject}.csv
   output/core_nodes/{fc_type}/{group}/{band}/{subject}_core_nodes.csv
-  output/rich_club/{fc_type}/{group}/{band}/{subject}.csv
   output/target_attack/{fc_type}/{group}/{band}/{subject}.csv
   output/mean/{group}/{band}/
   output/all_scalar_metrics_summary.csv
@@ -57,17 +56,12 @@ from pipeline_config import (
     SPARSITY_LEVELS,
     STABLE_CORE_MIN_DENSITIES,
     THRESHOLD_DEFAULT,
-    THRESHOLD_RICHCLUB,
 )
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 OUT_FC = BASE_DIR / "output" / "fc_matrices"
 OUT_CORE = BASE_DIR / "output" / "core_nodes"
 OUT_CORE_DENSITY = BASE_DIR / "output" / "core_nodes_density"
-OUT_RICH = BASE_DIR / "output" / "rich_club"
-OUT_RICH_DENSITY = BASE_DIR / "output" / "rich_club_density"
-OUT_RICH_WEIGHTED = BASE_DIR / "output" / "rich_club_weighted"
-OUT_RICH_WEIGHTED_STATS = BASE_DIR / "output" / "rich_club_weighted_stats"
 OUT_ATTACK = BASE_DIR / "output" / "target_attack"
 OUT_ATTACK_CONTROL = BASE_DIR / "output" / "target_attack_controls"
 OUT_ATTACK_DENSITY = BASE_DIR / "output" / "target_attack_density"
@@ -81,10 +75,6 @@ SUMMARY_CSV = BASE_DIR / "output" / "all_scalar_metrics_summary.csv"
 GROUPS = GROUP_DIRS
 FC_TYPES = FC_TYPES_LOWER
 
-N_RAND = 1000
-RICH_REWIRE_ITER = 10
-
-
 def save_csv(arr: np.ndarray, path: Path, header: bool = False) -> None:
     """将 ndarray 保存为 CSV。"""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -96,6 +86,19 @@ def list_subjects(raw_group_band_dir: Path) -> list[str]:
     if not raw_group_band_dir.exists():
         return []
     return sorted(f.name for f in raw_group_band_dir.iterdir() if f.suffix == ".set")
+
+
+def _filter_current_summary_scope(
+    df: pd.DataFrame,
+    allowed_columns: list[str] | None = None,
+) -> pd.DataFrame:
+    """Drop rows outside the configured bands and trim to the current schema."""
+    current_bands = set(BAND_LABELS.values())
+    filtered = df[df["Band"].isin(current_bands)].copy() if "Band" in df.columns else df.copy()
+    if allowed_columns is None:
+        return filtered
+    keep_columns = [column for column in allowed_columns if column in filtered.columns]
+    return filtered.loc[:, keep_columns]
 
 
 def _fc_distribution_metrics(matrix: np.ndarray, directed: bool) -> dict[str, float]:
@@ -178,36 +181,6 @@ def _matrix_corr(matrix_a: np.ndarray, matrix_b: np.ndarray, directed: bool) -> 
     )
 
 
-def _richclub_curve_features(curve: np.ndarray) -> dict[str, float]:
-    values = np.asarray(curve, dtype=np.float64)
-    valid_values = values[np.isfinite(values)]
-    if valid_values.size == 0:
-        return {
-            "RichClubMean_all": np.nan,
-            "RichClubMean_high_k": np.nan,
-            "RichClubMax": np.nan,
-            "RichClubPeakK": np.nan,
-            "RichClubEnhancedKCount": 0.0,
-            "RichClubValidKCount": 0.0,
-        }
-
-    valid_indices = np.where(np.isfinite(values))[0]
-    high_start = int(np.floor(valid_indices.size * 0.70))
-    high_indices = valid_indices[high_start:] if valid_indices.size else np.array([], dtype=int)
-    high_values = values[high_indices]
-    finite_high = high_values[np.isfinite(high_values)]
-    peak_idx = int(valid_indices[np.nanargmax(values[valid_indices])] + 1)
-
-    return {
-        "RichClubMean_all": float(np.nanmean(valid_values)),
-        "RichClubMean_high_k": float(np.nanmean(finite_high)) if finite_high.size else np.nan,
-        "RichClubMax": float(np.nanmax(valid_values)),
-        "RichClubPeakK": float(peak_idx),
-        "RichClubEnhancedKCount": float(np.sum(valid_values > 1.0)),
-        "RichClubValidKCount": float(valid_values.size),
-    }
-
-
 def _write_subject_qc(
     subject_id: str,
     group: str,
@@ -267,30 +240,16 @@ def _compute_layer_similarity(
     band_dir: str,
     lofc: np.ndarray,
     hofc: np.ndarray,
-    ahofc: np.ndarray,
 ) -> dict[str, float]:
     lofc_vec = _offdiag_values(lofc, directed=False)
     hofc_vec = _offdiag_values(hofc, directed=False)
-    ahofc_vec = _offdiag_values(ahofc, directed=True)
-    ahofc_sym = _offdiag_values((ahofc + ahofc.T) / 2.0, directed=False)
 
     result = {
         "Corr_LOFC_HOFC": _vector_corr(lofc_vec, hofc_vec),
-        "Corr_LOFC_aHOFC": _vector_corr(lofc_vec, ahofc_sym),
-        "Corr_HOFC_aHOFC": _vector_corr(hofc_vec, ahofc_sym),
     }
     result["LayerDecoupling"] = (
         1.0 - result["Corr_LOFC_HOFC"]
         if np.isfinite(result["Corr_LOFC_HOFC"])
-        else np.nan
-    )
-    high_order_corrs = np.array(
-        [result["Corr_LOFC_HOFC"], result["Corr_LOFC_aHOFC"]],
-        dtype=np.float64,
-    )
-    result["HighOrderDecoupling"] = (
-        float(1.0 - np.nanmean(high_order_corrs))
-        if np.isfinite(high_order_corrs).any()
         else np.nan
     )
     row = {
@@ -318,21 +277,19 @@ def _compute_fc_stability(
         return {}
 
     chunks = np.array_split(eeg, epoch_count, axis=1)
-    fc_by_type: dict[str, list[np.ndarray]] = {"LOFC": [], "HOFC": [], "aHOFC": []}
+    fc_by_type: dict[str, list[np.ndarray]] = {"LOFC": [], "HOFC": []}
     for chunk in chunks:
         if chunk.shape[1] < min_samples:
             continue
         lofc_epoch = bm.compute_lofc(chunk)
         hofc_epoch = bm.compute_hofc(lofc_epoch)
-        ahofc_epoch = bm.compute_ahofc(lofc_epoch, hofc_epoch)
         fc_by_type["LOFC"].append(lofc_epoch)
         fc_by_type["HOFC"].append(hofc_epoch)
-        fc_by_type["aHOFC"].append(ahofc_epoch)
 
     rows: list[dict[str, object]] = []
     scalar: dict[str, float] = {}
     for fc_type, matrices in fc_by_type.items():
-        directed = fc_type == "aHOFC"
+        directed = False
         if len(matrices) < 2:
             continue
 
@@ -384,18 +341,15 @@ def _compute_density_sensitivity(
     fc_name: str,
     matrix: np.ndarray,
     directed: bool,
-    n_rand: int,
     seed: int,
 ) -> dict[str, float]:
     node_count = matrix.shape[0]
     ce_by_density: list[np.ndarray] = []
     score_by_density: list[np.ndarray] = []
     hub_by_density: list[np.ndarray] = []
-    richclub_means: list[float] = []
     attack_aucs: list[float] = []
 
     core_rows: list[dict[str, object]] = []
-    rich_rows: list[dict[str, object]] = []
     attack_rows: list[dict[str, object]] = []
 
     for density_idx, density in enumerate(SPARSITY_LEVELS):
@@ -414,21 +368,12 @@ def _compute_density_sensitivity(
             directed=directed,
             top_ratio=HUB_TOP_RATIO,
         )
-        richclub = bm.compute_binary_normalized_rich_club(
-            graph,
-            directed=directed,
-            n_rand=n_rand,
-            seed=seed + density_idx,
-            rewire_iter=RICH_REWIRE_ITER,
-        )
         attack_curve = bm.compute_target_attack(graph, directed=directed)
         attack_auc = _curve_auc(attack_curve)
-        rich_features = _richclub_curve_features(richclub)
 
         ce_by_density.append(ce)
         score_by_density.append(score)
         hub_by_density.append(is_hub)
-        richclub_means.append(rich_features["RichClubMean_all"])
         attack_aucs.append(attack_auc)
 
         for node_idx in range(node_count):
@@ -451,16 +396,6 @@ def _compute_density_sensitivity(
                 }
             )
 
-        rich_rows.append(
-            {
-                "SubjectID": subject_id,
-                "Group": group,
-                "Band": band_label,
-                "FC_Type": fc_name.upper(),
-                "Density": density,
-                **rich_features,
-            }
-        )
         attack_rows.append(
             {
                 "SubjectID": subject_id,
@@ -500,10 +435,6 @@ def _compute_density_sensitivity(
     out_core.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(core_rows).to_csv(out_core, index=False, encoding="utf-8-sig")
 
-    out_rich = OUT_RICH_DENSITY / fc_name / group / band_dir / f"{Path(subject_id).stem}.csv"
-    out_rich.parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(rich_rows).to_csv(out_rich, index=False, encoding="utf-8-sig")
-
     out_attack = OUT_ATTACK_DENSITY / fc_name / group / band_dir / f"{Path(subject_id).stem}.csv"
     out_attack.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(attack_rows).to_csv(out_attack, index=False, encoding="utf-8-sig")
@@ -513,7 +444,6 @@ def _compute_density_sensitivity(
         f"CE_auc_max_{fc_name.upper()}": float(np.nanmax(ce_auc_by_node)),
         f"CoreNode_stability_mean_{fc_name.upper()}": float(np.nanmean(core_frequency)),
         f"StableCoreNode_count_{fc_name.upper()}": float(np.sum(stable_core)),
-        f"RichClub_auc_{fc_name.upper()}": _normalized_auc(SPARSITY_LEVELS, richclub_means),
         f"TargetAttack_auc_across_density_{fc_name.upper()}": _normalized_auc(
             SPARSITY_LEVELS,
             attack_aucs,
@@ -527,7 +457,6 @@ def process_subject(
     band_dir: str,
     band_label: str,
     fc_only: bool = False,
-    n_rand: int = N_RAND,
     seed: int = 42,
     random_attack_repeats: int = RANDOM_ATTACK_REPEATS,
     fc_stability_epochs: int = FC_STABILITY_EPOCHS,
@@ -546,7 +475,7 @@ def process_subject(
     band_label:
         CSV 中使用的频段标签，例如 "Beta"。
     fc_only:
-        为 True 时仅保存 FC 矩阵，跳过图指标、rich-club 和靶向攻击。
+        为 True 时仅保存 FC 矩阵，跳过图指标和靶向攻击。
 
     Returns
     -------
@@ -560,9 +489,8 @@ def process_subject(
         lofc = bm.compute_lofc(eeg)
         signed_lofc = bm.compute_signed_lofc(eeg)
         hofc = bm.compute_hofc(lofc)
-        ahofc = bm.compute_ahofc(lofc, hofc)
 
-        for fc_name, mat in [("lofc", lofc), ("hofc", hofc), ("ahofc", ahofc)]:
+        for fc_name, mat in [("lofc", lofc), ("hofc", hofc)]:
             out_path = OUT_FC / fc_name / group / band_dir / f"{subj_name}.csv"
             save_csv(mat, out_path)
         save_csv(signed_lofc, OUT_FC / "lofc_signed" / group / band_dir / f"{subj_name}.csv")
@@ -570,7 +498,7 @@ def process_subject(
         if fc_only:
             return {"Group": group, "Band": band_label, "SubjectID": set_path.name}
 
-        scalar = bm.compute_all_scalar_metrics(lofc, hofc, ahofc)
+        scalar = bm.compute_all_scalar_metrics(lofc, hofc)
         scalar_row = {
             "Group": group,
             "Band": band_label,
@@ -585,7 +513,6 @@ def process_subject(
                 band_dir=band_dir,
                 lofc=lofc,
                 hofc=hofc,
-                ahofc=ahofc,
             )
         )
         scalar_row.update(
@@ -603,7 +530,6 @@ def process_subject(
         for fc_name, mat, is_dir in [
             ("lofc", lofc, False),
             ("hofc", hofc, False),
-            ("ahofc", ahofc, True),
         ]:
             graph = bm.binarize(mat, THRESHOLD_DEFAULT)
             is_hub_top, ce, top_threshold = bm.identify_hub_nodes(
@@ -663,65 +589,8 @@ def process_subject(
             pd.DataFrame(core_rows).to_csv(out_path, index=False)
             scalar_row[f"CoreOverlap_BinaryCE_WeightedCE_{fc_name.upper()}"] = overlap
 
-        graph_lofc_rc = bm.binarize(lofc, THRESHOLD_RICHCLUB)
-        graph_hofc_rc = bm.binarize(hofc, THRESHOLD_RICHCLUB)
-        graph_ahofc_rc = bm.binarize(ahofc, THRESHOLD_RICHCLUB)
-
-        rc_lofc = bm.compute_binary_normalized_rich_club(
-            graph_lofc_rc,
-            directed=False,
-            n_rand=n_rand,
-            seed=seed,
-            rewire_iter=RICH_REWIRE_ITER,
-        )
-        rc_hofc = bm.compute_binary_normalized_rich_club(
-            graph_hofc_rc,
-            directed=False,
-            n_rand=n_rand,
-            seed=seed,
-            rewire_iter=RICH_REWIRE_ITER,
-        )
-        rc_ahofc = bm.compute_binary_normalized_rich_club(
-            graph_ahofc_rc,
-            directed=True,
-            n_rand=n_rand,
-            seed=seed,
-            rewire_iter=RICH_REWIRE_ITER,
-        )
-
-        for fc_name, richclub in [("lofc", rc_lofc), ("hofc", rc_hofc), ("ahofc", rc_ahofc)]:
-            out_path = OUT_RICH / fc_name / group / band_dir / f"{subj_name}.csv"
-            save_csv(richclub.reshape(1, -1), out_path)
-
-        for fc_name, mat, is_dir in [
-            ("lofc", lofc, False),
-            ("hofc", hofc, False),
-            ("ahofc", ahofc, True),
-        ]:
-            weighted_rc = bm.weighted_rich_club(mat, directed=is_dir)
-            out_path = OUT_RICH_WEIGHTED / fc_name / group / band_dir / f"{subj_name}.csv"
-            save_csv(weighted_rc.reshape(1, -1), out_path)
-            weighted_stats = bm.compute_weighted_normalized_rich_club(
-                mat,
-                directed=is_dir,
-                n_rand=n_rand,
-                seed=seed,
-                rewire_iter=RICH_REWIRE_ITER,
-            )
-            stats_df = pd.DataFrame({"k": np.arange(1, len(weighted_rc) + 1), **weighted_stats})
-            stats_path = (
-                OUT_RICH_WEIGHTED_STATS
-                / fc_name
-                / group
-                / band_dir
-                / f"{subj_name}.csv"
-            )
-            stats_path.parent.mkdir(parents=True, exist_ok=True)
-            stats_df.to_csv(stats_path, index=False, encoding="utf-8-sig")
-
         graph_lofc = bm.binarize(lofc, THRESHOLD_DEFAULT)
         graph_hofc = bm.binarize(hofc, THRESHOLD_DEFAULT)
-        graph_ahofc = bm.binarize(ahofc, THRESHOLD_DEFAULT)
 
         attack_curves_by_fc = {
             "lofc": bm.compute_attack_curves(
@@ -733,12 +602,6 @@ def process_subject(
             "hofc": bm.compute_attack_curves(
                 graph_hofc,
                 directed=False,
-                random_repeats=random_attack_repeats,
-                seed=seed,
-            ),
-            "ahofc": bm.compute_attack_curves(
-                graph_ahofc,
-                directed=True,
                 random_repeats=random_attack_repeats,
                 seed=seed,
             ),
@@ -762,7 +625,6 @@ def process_subject(
         for fc_name, graph, is_dir in [
             ("lofc", graph_lofc, False),
             ("hofc", graph_hofc, False),
-            ("ahofc", graph_ahofc, True),
         ]:
             ablation_curves = bm.compute_centrality_ablation_attacks(
                 graph,
@@ -783,7 +645,6 @@ def process_subject(
         for fc_name, mat, graph, is_dir in [
             ("lofc", lofc, graph_lofc, False),
             ("hofc", hofc, graph_hofc, False),
-            ("ahofc", ahofc, graph_ahofc, True),
         ]:
             is_hub_mean_std, _, _ = bm.identify_hub_nodes(
                 graph,
@@ -806,7 +667,6 @@ def process_subject(
         for fc_name, mat, is_dir in [
             ("lofc", lofc, False),
             ("hofc", hofc, False),
-            ("ahofc", ahofc, True),
         ]:
             scalar_row.update(
                 _compute_density_sensitivity(
@@ -817,7 +677,6 @@ def process_subject(
                     fc_name=fc_name,
                     matrix=mat,
                     directed=is_dir,
-                    n_rand=n_rand,
                     seed=seed,
                 )
             )
@@ -854,71 +713,6 @@ def compute_group_mean(group: str, band_dir: str) -> None:
         save_csv(mean_mat, out_path)
 
 
-def recompute_richclub_from_fc(
-    group_filter: str | None = None,
-    band_filter: str | None = None,
-    n_rand: int = N_RAND,
-    seed: int = 42,
-) -> None:
-    """
-    从已保存的 FC 矩阵重算 binary normalized rich-club 曲线。
-
-    该模式不重新读取 EEG 文件，也不重新计算 LOFC/HOFC/aHOFC。
-    """
-    groups_to_run = {group_filter: GROUPS[group_filter]} if group_filter else GROUPS
-    bands_to_run = {band_filter: BAND_LABELS[band_filter]} if band_filter else BAND_LABELS
-
-    total_files = 0
-    total_done = 0
-    total_errors = 0
-
-    for group in groups_to_run:
-        for band_dir in bands_to_run:
-            for fc_name in FC_TYPES:
-                fc_dir = OUT_FC / fc_name / group / band_dir
-                csv_files = sorted(fc_dir.glob("*.csv")) if fc_dir.exists() else []
-                if not csv_files:
-                    print(f"[跳过] 未找到 FC 矩阵: {fc_dir}")
-                    continue
-
-                directed = fc_name == "ahofc"
-                print(
-                    f"\n重算 rich-club: {fc_name.upper()} / {group} / {band_dir} "
-                    f"({len(csv_files)} 个被试)"
-                )
-                total_files += len(csv_files)
-
-                for idx, csv_file in enumerate(csv_files, 1):
-                    try:
-                        mat = pd.read_csv(csv_file, header=None).to_numpy(dtype=float)
-                        graph_bin = bm.binarize(mat, THRESHOLD_RICHCLUB)
-                        richclub = bm.compute_binary_normalized_rich_club(
-                            graph_bin,
-                            directed=directed,
-                            n_rand=n_rand,
-                            seed=seed,
-                            rewire_iter=RICH_REWIRE_ITER,
-                        )
-                        out_path = OUT_RICH / fc_name / group / band_dir / csv_file.name
-                        save_csv(richclub.reshape(1, -1), out_path)
-                        total_done += 1
-                        print(
-                            f"  [{idx:3d}/{len(csv_files)}] {csv_file.stem} "
-                            f"k={len(richclub)}"
-                        )
-                    except Exception as exc:
-                        total_errors += 1
-                        print(f"  [!] {csv_file.name}: {exc}")
-                        traceback.print_exc()
-
-    print(f"\n{'=' * 60}")
-    print("Rich-club 重算完成")
-    print(f"  待处理: {total_files}")
-    print(f"  成功:   {total_done}")
-    print(f"  失败:   {total_errors}")
-    print(f"{'=' * 60}")
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="批量计算 EEG 脑网络 FC 矩阵和指标。")
     parser.add_argument(
@@ -935,18 +729,7 @@ def main() -> None:
     parser.add_argument(
         "--fc-only",
         action="store_true",
-        help="仅保存 FC 矩阵，跳过图指标、rich-club 和靶向攻击。",
-    )
-    parser.add_argument(
-        "--richclub-only",
-        action="store_true",
-        help="仅从已保存 FC 矩阵重算 binary normalized rich-club。",
-    )
-    parser.add_argument(
-        "--n-rand",
-        type=int,
-        default=N_RAND,
-        help="rich-club 随机化次数，默认 1000。",
+        help="仅保存 FC 矩阵，跳过图指标和靶向攻击。",
     )
     parser.add_argument(
         "--random-attack-repeats",
@@ -972,15 +755,6 @@ def main() -> None:
         parser.error(f"--group must be one of: {', '.join(GROUPS)}")
     if args.band and args.band not in BAND_LABELS:
         parser.error(f"--band must be one of: {', '.join(BAND_LABELS)}")
-
-    if args.richclub_only:
-        recompute_richclub_from_fc(
-            group_filter=args.group,
-            band_filter=args.band,
-            n_rand=args.n_rand,
-            seed=args.seed,
-        )
-        return
 
     groups_to_run = {args.group: GROUPS[args.group]} if args.group else GROUPS
     bands_to_run = {args.band: BAND_LABELS[args.band]} if args.band else BAND_LABELS
@@ -1022,7 +796,6 @@ def main() -> None:
                     band_dir=band_dir,
                     band_label=band_label,
                     fc_only=args.fc_only,
-                    n_rand=args.n_rand,
                     seed=args.seed,
                     random_attack_repeats=args.random_attack_repeats,
                     fc_stability_epochs=args.fc_stability_epochs,
@@ -1042,9 +815,10 @@ def main() -> None:
             print("完成")
 
     if all_scalar_rows and not args.fc_only:
-        df_new = pd.DataFrame(all_scalar_rows)
+        df_new = _filter_current_summary_scope(pd.DataFrame(all_scalar_rows))
+        current_columns = df_new.columns.tolist()
         if SUMMARY_CSV.exists():
-            df_old = pd.read_csv(SUMMARY_CSV)
+            df_old = _filter_current_summary_scope(pd.read_csv(SUMMARY_CSV), current_columns)
             df_combined = pd.concat([df_old, df_new], ignore_index=True)
             df_combined = df_combined.drop_duplicates(
                 subset=["Group", "Band", "SubjectID"],
@@ -1053,6 +827,7 @@ def main() -> None:
         else:
             df_combined = df_new
 
+        df_combined = _filter_current_summary_scope(df_combined, current_columns)
         df_combined.to_csv(SUMMARY_CSV, index=False, encoding="utf-8-sig")
         print(f"\n已更新汇总指标: {SUMMARY_CSV} ({len(df_combined)} 行)")
 

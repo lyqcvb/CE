@@ -10,9 +10,7 @@ from pipeline_config import SPARSITY_LEVELS
 from step02_connectivity import binarize, proportional_threshold
 from step03_connection_strength import average_connection_strength
 from step04_graph_metrics import (
-    clustering_coef_bin_dir,
     clustering_coef_bin_und,
-    clustering_coef_wd,
     clustering_coef_wu,
     global_efficiency_bin,
     global_efficiency_weighted,
@@ -37,7 +35,6 @@ def _normalized_auc(x: list[float], y: list[float]) -> float:
 def compute_all_scalar_metrics(
     lofc: np.ndarray,
     hofc: np.ndarray,
-    ahofc: np.ndarray,
     threshold: float = 0.35,
     sparsity_levels: list[float] | None = None,
 ) -> dict:
@@ -48,26 +45,20 @@ def compute_all_scalar_metrics(
         sparsity_levels = SPARSITY_LEVELS
 
     result = {}
-    for fc_name, matrix, is_directed in [
+    fc_inputs: list[tuple[str, np.ndarray, bool]] = [
         ("LOFC", lofc, False),
         ("HOFC", hofc, False),
-        ("aHOFC", ahofc, True),
-    ]:
-        graph_bin = binarize(matrix, threshold)
+    ]
 
-        if is_directed:
-            clustering_bin = float(clustering_coef_bin_dir(graph_bin).mean())
-        else:
-            clustering_bin = float(clustering_coef_bin_und(graph_bin).mean())
+    for fc_name, matrix, is_directed in fc_inputs:
+        graph_bin = binarize(matrix, threshold)
+        clustering_bin = float(clustering_coef_bin_und(graph_bin).mean())
 
         result[f"Eglob_bin_{fc_name}"] = global_efficiency_bin(graph_bin)
         result[f"Clustering_bin_{fc_name}"] = clustering_bin
         result[f"MeanConn_{fc_name}"] = average_connection_strength(matrix, directed=is_directed)
 
-        if is_directed:
-            clustering_weighted = float(clustering_coef_wd(matrix).mean())
-        else:
-            clustering_weighted = float(clustering_coef_wu(matrix).mean())
+        clustering_weighted = float(clustering_coef_wu(matrix).mean())
 
         result[f"Eglob_weighted_{fc_name}"] = global_efficiency_weighted(
             matrix,
@@ -83,10 +74,7 @@ def compute_all_scalar_metrics(
         clustering_by_density: list[float] = []
         for density in sparsity_levels:
             sparse_graph = proportional_threshold(matrix, density=density, directed=is_directed)
-            if is_directed:
-                sparse_clustering = float(clustering_coef_bin_dir(sparse_graph).mean())
-            else:
-                sparse_clustering = float(clustering_coef_bin_und(sparse_graph).mean())
+            sparse_clustering = float(clustering_coef_bin_und(sparse_graph).mean())
 
             density_label = f"{int(round(density * 100)):02d}"
             result[f"Eglob_bin_density{density_label}_{fc_name}"] = global_efficiency_bin(

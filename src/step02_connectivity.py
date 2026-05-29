@@ -96,77 +96,30 @@ def _absolute_profile_correlation(profile_a: np.ndarray, profile_b: np.ndarray) 
     return float(abs(r))
 
 
-def compute_topographical_profile_correlation(
-    source_fc: np.ndarray,
-    target_fc: np.ndarray,
-    *,
-    symmetric_output: bool,
-) -> np.ndarray:
-    """
-    Correlate Fisher-z topographical profiles between two FC matrices.
-    """
-    source = _validate_connectivity_matrix(source_fc, "source_fc")
-    target = _validate_connectivity_matrix(target_fc, "target_fc")
-    if source.shape != target.shape:
-        raise ValueError(
-            f"source_fc and target_fc must have the same shape: {source.shape} != {target.shape}"
-        )
-
-    n_nodes = source.shape[0]
-    source_z = fisher_z_transform_connectivity(source)
-    target_z = fisher_z_transform_connectivity(target)
-    out = np.zeros((n_nodes, n_nodes), dtype=np.float64)
-
-    if symmetric_output:
-        for i in range(n_nodes - 1):
-            for j in range(i + 1, n_nodes):
-                excluded = {i, j}
-                source_profile = _topographical_profile(source_z, i, excluded)
-                target_profile = _topographical_profile(target_z, j, excluded)
-                value = _absolute_profile_correlation(source_profile, target_profile)
-                out[i, j] = value
-                out[j, i] = value
-    else:
-        for i in range(n_nodes):
-            for j in range(n_nodes):
-                excluded = {i, j}
-                source_profile = _topographical_profile(source_z, i, excluded)
-                target_profile = _topographical_profile(target_z, j, excluded)
-                out[i, j] = _absolute_profile_correlation(source_profile, target_profile)
-
-    return out
-
-
 def compute_topographical_hofc(lofc: np.ndarray) -> np.ndarray:
     """
     Compute high-order FC from LOFC topographical profiles.
     """
-    return compute_topographical_profile_correlation(
-        lofc,
-        lofc,
-        symmetric_output=True,
-    )
+    lofc_matrix = _validate_connectivity_matrix(lofc, "lofc")
+    n_nodes = lofc_matrix.shape[0]
+    lofc_z = fisher_z_transform_connectivity(lofc_matrix)
+    out = np.zeros((n_nodes, n_nodes), dtype=np.float64)
+
+    for i in range(n_nodes - 1):
+        for j in range(i + 1, n_nodes):
+            excluded = {i, j}
+            profile_i = _topographical_profile(lofc_z, i, excluded)
+            profile_j = _topographical_profile(lofc_z, j, excluded)
+            value = _absolute_profile_correlation(profile_i, profile_j)
+            out[i, j] = value
+            out[j, i] = value
+
+    return out
 
 
 def compute_hofc(lofc: np.ndarray) -> np.ndarray:
     """Compute high-order FC from LOFC topographical profiles."""
     return compute_topographical_hofc(lofc)
-
-
-def compute_associated_hofc(lofc: np.ndarray, hofc: np.ndarray) -> np.ndarray:
-    """
-    Compute associated HOFC by correlating LOFC profiles with HOFC profiles.
-    """
-    return compute_topographical_profile_correlation(
-        lofc,
-        hofc,
-        symmetric_output=False,
-    )
-
-
-def compute_ahofc(lofc: np.ndarray, hofc: np.ndarray) -> np.ndarray:
-    """Compute associated HOFC from LOFC and HOFC topographical profiles."""
-    return compute_associated_hofc(lofc, hofc)
 
 
 def binarize(matrix: np.ndarray, threshold: float = 0.35) -> np.ndarray:

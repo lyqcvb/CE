@@ -19,22 +19,17 @@ def test_scalar_metrics_include_weighted_qc_and_density_auc() -> None:
     hofc = rng.random((5, 5))
     hofc = (hofc + hofc.T) / 2.0
     np.fill_diagonal(hofc, 1.0)
-    ahofc = rng.random((5, 5))
-    np.fill_diagonal(ahofc, 1.0)
-
     metrics = compute_all_scalar_metrics(
         lofc,
         hofc,
-        ahofc,
         sparsity_levels=[0.2, 0.4],
     )
 
     for key in [
         "Eglob_weighted_LOFC",
-        "Clustering_weighted_aHOFC",
         "Eglob_bin_auc_HOFC",
         "Clustering_bin_auc_LOFC",
-        "Density_thr035_aHOFC",
+        "Density_thr035_HOFC",
     ]:
         assert key in metrics
         assert np.isfinite(metrics[key])

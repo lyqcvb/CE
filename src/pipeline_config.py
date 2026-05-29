@@ -27,7 +27,6 @@ BAND_LABELS = {
     "4-8(Theta)": "Theta",
     "8-12(Alpha)": "Alpha",
     "12-30(Beta)": "Beta",
-    "30-40(Gamma)": "Gamma",
 }
 BANDS = list(BAND_LABELS.values())
 BAND_FOLDERS_BY_LABEL = {label: folder for folder, label in BAND_LABELS.items()}
@@ -36,14 +35,12 @@ BAND_FILTERS = {
     "4-8(Theta)": (4.0, 8.0),
     "8-12(Alpha)": (8.0, 12.0),
     "12-30(Beta)": (12.0, 30.0),
-    "30-40(Gamma)": (30.0, 40.0),
 }
 
-FC_TYPES_LOWER = ["lofc", "hofc", "ahofc"]
-FC_TYPES_UPPER = ["LOFC", "HOFC", "AHOFC"]
+FC_TYPES_LOWER = ["lofc", "hofc"]
+FC_TYPES_UPPER = ["LOFC", "HOFC"]
 
 THRESHOLD_DEFAULT = 0.35
-THRESHOLD_RICHCLUB = THRESHOLD_DEFAULT
 
 # Fixed-density sensitivity analysis. Each graph keeps the strongest
 # off-diagonal connections at these proportions, then scalar graph metrics are
@@ -57,7 +54,7 @@ HUB_TOP_RATIO = 0.20
 REPRESENTATIVE_CORE_THRESHOLDS = [0.20, 0.30, 0.40]
 
 # Random attack is averaged across repeats. Keep the default moderate because
-# the full pipeline already runs rich-club randomizations for every subject.
+# the full pipeline evaluates every subject, band, and FC type.
 RANDOM_ATTACK_REPEATS = 1000
 
 # Stable core nodes must be selected in at least this many density thresholds.
