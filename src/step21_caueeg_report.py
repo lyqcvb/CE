@@ -3,7 +3,8 @@ Step 21: Figures and auto-generated Markdown tables for the CAUEEG results.
 
 Figures (results/caueeg/figures/*.png, 200 dpi):
 fig1_cohort_age, fig2_spectrum, fig3_primary_forest, fig4_measure_comparison,
-fig5_attack_curves, fig6_hofc_convergence, fig7_power_adjustment.
+fig5_attack_curves, fig6_hofc_convergence, fig7_power_adjustment,
+fig8_bandwise_meanconn.
 Tables: results/caueeg/report_tables.md
 """
 
@@ -106,8 +107,8 @@ def _forest(ax, table, labels, title):
     ax.axvline(0, color=INK_2, lw=1)
     ax.set_yticks(y, labels)
     ax.set_xlabel("组间差（标准化，SD 单位，95% CI）")
-    ax.set_title(title, loc="left", color=INK, pad=24)
-    ax.legend(loc="lower left", bbox_to_anchor=(0, 1.06), ncol=3, fontsize=8)
+    ax.set_title(title, loc="left", color=INK)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.13), ncol=3, fontsize=8)
 
 
 def _endpoint_labels(table):
@@ -121,7 +122,7 @@ def _endpoint_labels(table):
 
 
 def fig_primary(paths, primary):
-    fig, ax = plt.subplots(figsize=(7, 4.6))
+    fig, ax = plt.subplots(figsize=(7, 4.8))
     _forest(ax, primary, _endpoint_labels(primary), "AEC-c 主终点（混合模型，校正年龄；* 组效应 FDR<0.05）")
     fig.tight_layout()
     fig.savefig(paths.figures / "fig3_primary_forest.png", dpi=200)
@@ -200,9 +201,38 @@ def fig_power(paths, primary, adjusted):
     _forest(axes[0], primary, _endpoint_labels(primary), "未校正功率")
     adj = adjusted[adjusted["adjustment"] == "band_logpower"].reset_index(drop=True)
     _forest(axes[1], adj, _endpoint_labels(adj), "校正该频段 log 功率")
-    axes[1].get_legend().remove()
+    axes[0].get_legend().remove()
     fig.tight_layout()
     fig.savefig(paths.figures / "fig7_power_adjustment.png", dpi=200)
+    plt.close(fig)
+
+
+def fig_bandwise(paths):
+    table = pd.read_csv(paths.results / "stats_power_adjusted_bandwise.csv")
+    names = {"aec": "AEC", "aecc": "AEC-c", "wpli": "wPLI"}
+    fig, axes = plt.subplots(1, 3, figsize=(10, 3.4), sharey=True)
+    for ax, measure in zip(axes, cfg.MEASURES):
+        sub = table[(table["measure"] == measure) & (table["fc"] == "LOFC") & (table["metric"] == "MeanConn")]
+        y = np.arange(len(cfg.BANDS))[::-1]
+        for k, key in enumerate(("MCI_vs_HC", "AD_vs_HC")):
+            for adj, filled in (("none", True), ("log_power", False)):
+                s = sub[sub["adjustment"] == adj].set_index("band").reindex(cfg.BAND_NAMES)
+                offs = (0.18 if k == 0 else -0.18) + (0.07 if filled else -0.07)
+                ax.errorbar(s[f"{key}_est"], y + offs,
+                            xerr=[s[f"{key}_est"] - s[f"{key}_ci_lo"], s[f"{key}_ci_hi"] - s[f"{key}_est"]],
+                            fmt="o", ms=5, mfc=CONTRAST_COLORS[key] if filled else "white",
+                            color=CONTRAST_COLORS[key], elinewidth=1.3)
+        ax.axvline(0, color=INK_2, lw=1)
+        ax.set_yticks(y, cfg.BAND_NAMES)
+        ax.set_title(f"{names[measure]} LOFC 平均连接", loc="left", color=INK)
+        ax.set_xlabel("组间差（SD 单位，95% CI）")
+    handles = [plt.Line2D([], [], color=CONTRAST_COLORS[k], marker="o", lw=1.3, label=CONTRAST_LABEL[k])
+               for k in ("MCI_vs_HC", "AD_vs_HC")]
+    handles += [plt.Line2D([], [], color=INK_2, marker="o", ls="", label="未校正"),
+                plt.Line2D([], [], color=INK_2, marker="o", mfc="white", ls="", label="校正 log 功率")]
+    fig.legend(handles=handles, loc="lower center", ncol=4, fontsize=8, bbox_to_anchor=(0.5, -0.02))
+    fig.tight_layout(rect=(0, 0.07, 1, 1))
+    fig.savefig(paths.figures / "fig8_bandwise_meanconn.png", dpi=200)
     plt.close(fig)
 
 
@@ -251,6 +281,8 @@ def main() -> None:
     fig_attack(paths, matched)
     fig_convergence(paths)
     fig_power(paths, primary, adjusted)
+    if (paths.results / "stats_power_adjusted_bandwise.csv").exists():
+        fig_bandwise(paths)
 
     tables = {
         "cohort_summary": read("cohort_summary.csv"),

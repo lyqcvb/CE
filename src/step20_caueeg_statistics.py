@@ -9,6 +9,7 @@ endpoints.
 
 Outputs (results/caueeg/):
 stats_primary.csv, stats_bandwise.csv, stats_power_adjusted.csv,
+stats_power_adjusted_bandwise.csv (per band, all three measures),
 stats_robustness.csv, stats_resampling.csv, stats_resampling_summary.csv,
 stats_ce_vs_betweenness.csv, stats_order_interaction.csv, stats_qc.csv,
 stats_spectral.csv, stats_nonparametric_bandwise.csv,
@@ -242,6 +243,31 @@ def power_adjusted(t: dict, primary_table: pd.DataFrame) -> pd.DataFrame:
     return _fdr(table, "group_p", "group_p_fdr", by="adjustment")
 
 
+def power_adjusted_bandwise(t: dict) -> pd.DataFrame:
+    """Per-band OLS value ~ group + age (+ log band power or relative power); attenuation of contrasts."""
+    rows = []
+    rel = t["spectral"].melt(id_vars="serial", value_vars=[f"rel_{b}" for b in cfg.BANDS],
+                             var_name="band", value_name="relpow")
+    rel["band"] = rel["band"].str.replace("rel_", "", regex=False)
+    for measure in cfg.MEASURES:
+        for fc, metric in PRIMARY_ENDPOINTS:
+            d = network_long(t, t["matched"], measure, fc).merge(rel, on=["serial", "band"], how="left")
+            metric_used = _metric_for(measure, metric, d.columns[d.notna().any()])
+            for band in cfg.BANDS:
+                sub = d[d["band"] == band]
+                base = fit_ols(sub, metric_used, ["age_z"])
+                for label, covs in (("none", ["age_z"]), ("log_power", ["age_z", "logpow"]),
+                                    ("relative_power", ["age_z", "relpow"])):
+                    res = base if label == "none" else fit_ols(sub, metric_used, covs)
+                    row = {"measure": measure, "fc": fc, "metric": metric_used, "band": band, "adjustment": label, **res}
+                    for hi, lo in CONTRASTS:
+                        key = f"{hi}_vs_{lo}_est"
+                        row[f"{hi}_vs_{lo}_attenuation"] = (1 - abs(res[key]) / abs(base[key])) if base.get(key) else np.nan
+                    rows.append(row)
+    table = pd.DataFrame(rows)
+    return _fdr(table, "group_p", "group_p_fdr", by=["measure", "adjustment"])
+
+
 def robustness(t: dict) -> pd.DataFrame:
     rows = []
 
@@ -439,6 +465,7 @@ def main() -> None:
     save(prim, "stats_primary.csv")
     save(bands, "stats_bandwise.csv")
     save(power_adjusted(t, prim), "stats_power_adjusted.csv")
+    save(power_adjusted_bandwise(t), "stats_power_adjusted_bandwise.csv")
     save(robustness(t), "stats_robustness.csv")
     tost, inter = ce_vs_betweenness(t)
     save(tost, "stats_ce_vs_betweenness.csv")

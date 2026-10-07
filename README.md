@@ -89,6 +89,19 @@ uv run python src/step11_statistical_analysis.py
 uv run python src/step12_fc_heatmaps.py
 ```
 
+CAUEEG 复现流程（数据集只读，输出写到 `{data,output,results}/caueeg/`，详见 `docs/caueeg_analysis_plan.md`、`docs/script_io_formats.md`）：
+
+```powershell
+uv run python src/step14_caueeg_events.py
+uv run python src/step15_caueeg_preprocess.py --jobs 10 --skip-existing
+uv run python src/step16_caueeg_cohort.py
+uv run python src/step17_caueeg_spectral.py
+uv run python src/step18_caueeg_connectivity.py --skip-existing
+uv run python src/step19_caueeg_network.py
+uv run python src/step20_caueeg_statistics.py
+uv run python src/step21_caueeg_report.py
+```
+
 ## 主要输出
 
 ```text
