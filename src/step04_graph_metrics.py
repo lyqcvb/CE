@@ -5,30 +5,32 @@ Step 04: Graph-theory metrics.
 from __future__ import annotations
 
 import numpy as np
+from scipy.sparse.csgraph import shortest_path
 
 
 def _bfs_distance(graph: np.ndarray) -> np.ndarray:
     """
-    All-source shortest-path distance for binary graphs.
+    All-source shortest-path distance for binary graphs (unweighted hop count).
+
+    Level-synchronous BFS from all sources at once via boolean matrix products;
+    row s follows outgoing edges graph[u, v] > 0. Much faster than per-call
+    scipy validation for the small (16-19 node) graphs used here.
     """
-    n = graph.shape[0]
+    adjacency = (np.asarray(graph) > 0).astype(np.float64)
+    n = adjacency.shape[0]
     distance = np.full((n, n), np.inf)
     np.fill_diagonal(distance, 0.0)
-    for src in range(n):
-        visited = np.zeros(n, dtype=bool)
-        visited[src] = True
-        queue = [src]
-        dist = 0
-        while queue:
-            next_queue = []
-            dist += 1
-            for node in queue:
-                for neighbor in np.where(graph[node] > 0)[0]:
-                    if not visited[neighbor]:
-                        visited[neighbor] = True
-                        distance[src, neighbor] = dist
-                        next_queue.append(neighbor)
-            queue = next_queue
+    reached = np.eye(n, dtype=bool)
+    frontier = reached.astype(np.float64)
+    step = 0
+    while True:
+        step += 1
+        nxt = ((frontier @ adjacency) > 0) & ~reached
+        if not nxt.any():
+            break
+        distance[nxt] = step
+        reached |= nxt
+        frontier = nxt.astype(np.float64)
     return distance
 
 
@@ -56,28 +58,11 @@ def _dijkstra_distance(weight: np.ndarray) -> np.ndarray:
     """
     All-source shortest-path distance using edge length = 1 / weight.
     """
-    n = weight.shape[0]
-    distance = np.full((n, n), np.inf, dtype=np.float64)
-    for src in range(n):
-        visited = np.zeros(n, dtype=bool)
-        dist = np.full(n, np.inf, dtype=np.float64)
-        dist[src] = 0.0
-
-        for _ in range(n):
-            candidates = np.where(~visited, dist, np.inf)
-            node = int(np.argmin(candidates))
-            if not np.isfinite(candidates[node]):
-                break
-            visited[node] = True
-            neighbors = np.where(weight[node] > 0.0)[0]
-            for neighbor in neighbors:
-                length = 1.0 / weight[node, neighbor]
-                alt = dist[node] + length
-                if alt < dist[neighbor]:
-                    dist[neighbor] = alt
-
-        distance[src] = dist
-    return distance
+    weight = np.asarray(weight, dtype=np.float64)
+    length = np.zeros_like(weight)
+    positive = weight > 0.0
+    length[positive] = 1.0 / weight[positive]
+    return shortest_path(length, method="D", directed=True)
 
 
 def global_efficiency_weighted(weight: np.ndarray, directed: bool = False) -> float:
@@ -235,3 +220,14 @@ def graph_qc_metrics(graph_bin: np.ndarray, directed: bool = False) -> dict[str,
         "ComponentCount": float(len(component_sizes)),
         "LargestComponentSize": float(max(component_sizes) if component_sizes else 0),
     }
+
+
+def largest_component_size(graph_bin: np.ndarray) -> int:
+    """Size of the largest connected component of an undirected binary graph."""
+    graph = (np.asarray(graph_bin) > 0.0).astype(np.float64)
+    graph = np.maximum(graph, graph.T)
+    np.fill_diagonal(graph, 0.0)
+    if graph.shape[0] == 0:
+        return 0
+    reachable = np.isfinite(_bfs_distance(graph))
+    return int(reachable.sum(axis=1).max())

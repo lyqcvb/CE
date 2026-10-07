@@ -175,3 +175,31 @@ results/fc_heatmaps/hofc_heatmap.png
 results/fc_heatmaps/hofc_heatmap.svg
 results/fc_heatmaps/colorbar.png
 ```
+
+## CAUEEG 复现流程（step14–step21）
+
+数据集根目录默认为 `F:\数据\caueeg-dataset`（只读），可用环境变量 `CAUEEG_ROOT` 或参数 `--caueeg-root` 覆盖。输出写到 `{project_root}/{data,output,results}/caueeg/`，`project_root` 默认为 `E:\Paper_code\CE`，可用 `CE_PROJECT_ROOT` 或 `--project-root` 覆盖。这些目录都在 gitignore 中。
+
+```powershell
+uv run python src/step14_caueeg_events.py
+uv run python src/step15_caueeg_preprocess.py --jobs 10 --skip-existing
+uv run python src/step16_caueeg_cohort.py
+uv run python src/step17_caueeg_spectral.py
+uv run python src/step18_caueeg_connectivity.py --skip-existing
+uv run python src/step19_caueeg_network.py
+uv run python src/step20_caueeg_statistics.py
+uv run python src/step21_caueeg_report.py
+```
+
+| 脚本 | 输入 | 输出 |
+| --- | --- | --- |
+| `step14_caueeg_events.py` | `annotation.json`、`dementia-no-overlap.json`、`event/*.json`、EDF 头 | `data/caueeg/events_corrected/{serial}.json`：`n_samples`、`pause_boundaries`、`ec_spans`、`usable_spans`、`excluded`、标记位（单位均为 200 Hz 采样点，已做暂停校正）；`results/caueeg/candidate_pool.csv`；`preprocess_serials.txt`（只含编号） |
+| `step15_caueeg_preprocess.py` | `preprocess_serials.txt`、EDF、校正后的事件 | `data/caueeg/preprocessed/{serial}.npz`：`data`（19×T，float32，µV）、`piece_offsets`、`piece_bounds`、`epoch_starts`、`epoch_piece`、`sfreq`、`channels`；`results/caueeg/preproc_logs/{serial}.json`（含 ICLabel 概率）；`preproc_log.csv`。`status` 取值为 `ok`、`too_many_bad_channels`、`insufficient_epochs` 或 `error: ...` |
+| `step16_caueeg_cohort.py` | `candidate_pool.csv`、`preproc_log.csv` | `cohort_matched_111.csv`（triplet、group、age、serial、symptom、split）、`cohort_resamples.csv`（含 draw 1–100）、`cohort_60_85.csv`、`cohort_attrition.csv`、`cohort_summary.csv` |
+| `step17_caueeg_spectral.py` | `preprocessed/*.npz` | `spectral_global.csv`：`abs_/logabs_/rel_{band}`、`theta_alpha_ratio`、`iaf_peak`、`iaf_cog`、`ap_offset`、`ap_exponent`、`ap_r2`；`spectral_channels.csv`；`spectral_psd_global.csv`（列为频率，单位 µV²/Hz） |
+| `step18_caueeg_connectivity.py` | `preprocessed/*.npz`、`cohort_matched_111.csv`（用于决定收敛分析的对象） | `output/caueeg/fc/{aec,aecc,wpli}/{band}/{serial}.npz`：`full`（19×19，带符号）、`chunks`（5×19×19）、`halves`（2×19×19）；`results/caueeg/hofc_convergence_subject.csv` |
+| `step19_caueeg_network.py` | `fc/**.npz` | `output/caueeg/network_metrics.csv`（每行对应 serial×measure×band×fc，指标列见脚本 docstring）；`attack_curves.csv`（仅 AEC-c，包含 ce/betweenness/random 三种排序，20 步） |
+| `step20_caueeg_statistics.py` | 上述全部 | `results/caueeg/stats_*.csv`、`hofc_convergence_summary.csv`、`group_descriptives.csv` |
+| `step21_caueeg_report.py` | `stats_*.csv` 等 | `results/caueeg/figures/fig1–fig7*.png`、`report_tables.md` |
+
+组标签在代码中写作 `HC`/`MCI`/`AD`，其中 `MCI` 指遗忘型 MCI（aMCI）。

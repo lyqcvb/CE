@@ -84,7 +84,7 @@ def _topographical_profile(
     return z_matrix[mask, node_index]
 
 
-def _absolute_profile_correlation(profile_a: np.ndarray, profile_b: np.ndarray) -> float:
+def _profile_correlation(profile_a: np.ndarray, profile_b: np.ndarray) -> float:
     if profile_a.size < 2 or profile_b.size < 2:
         return 0.0
     if np.allclose(profile_a, profile_a[0]) or np.allclose(profile_b, profile_b[0]):
@@ -93,12 +93,20 @@ def _absolute_profile_correlation(profile_a: np.ndarray, profile_b: np.ndarray) 
     r = np.corrcoef(profile_a, profile_b)[0, 1]
     if not np.isfinite(r):
         return 0.0
-    return float(abs(r))
+    return float(r)
 
 
-def compute_topographical_hofc(lofc: np.ndarray) -> np.ndarray:
+def _absolute_profile_correlation(profile_a: np.ndarray, profile_b: np.ndarray) -> float:
+    return abs(_profile_correlation(profile_a, profile_b))
+
+
+def compute_topographical_hofc(lofc: np.ndarray, signed: bool = False) -> np.ndarray:
     """
     Compute high-order FC from LOFC topographical profiles.
+
+    By default HOFC is the absolute profile correlation. With signed=True the
+    sign is kept, so strongly anti-correlated profiles are not treated as
+    similar; pass a signed LOFC to also keep the low-order sign.
     """
     lofc_matrix = _validate_connectivity_matrix(lofc, "lofc")
     n_nodes = lofc_matrix.shape[0]
@@ -110,7 +118,9 @@ def compute_topographical_hofc(lofc: np.ndarray) -> np.ndarray:
             excluded = {i, j}
             profile_i = _topographical_profile(lofc_z, i, excluded)
             profile_j = _topographical_profile(lofc_z, j, excluded)
-            value = _absolute_profile_correlation(profile_i, profile_j)
+            value = _profile_correlation(profile_i, profile_j)
+            if not signed:
+                value = abs(value)
             out[i, j] = value
             out[j, i] = value
 
@@ -120,6 +130,11 @@ def compute_topographical_hofc(lofc: np.ndarray) -> np.ndarray:
 def compute_hofc(lofc: np.ndarray) -> np.ndarray:
     """Compute high-order FC from LOFC topographical profiles."""
     return compute_topographical_hofc(lofc)
+
+
+def compute_signed_hofc(lofc_signed: np.ndarray) -> np.ndarray:
+    """Signed HOFC: no absolute value at either the LOFC or the profile level."""
+    return compute_topographical_hofc(lofc_signed, signed=True)
 
 
 def binarize(matrix: np.ndarray, threshold: float = 0.35) -> np.ndarray:

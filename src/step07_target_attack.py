@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from step04_graph_metrics import global_efficiency_bin
+from step04_graph_metrics import global_efficiency_bin, largest_component_size
 from step05_hub_detection import (
     betweenness_bin,
     compute_ce,
@@ -50,12 +50,28 @@ def _metric_order(values: np.ndarray) -> np.ndarray:
     return np.lexsort((index, -np.asarray(values, dtype=np.float64)))
 
 
+def _attack_outcome(graph: np.ndarray, outcome: str) -> float:
+    if outcome == "efficiency":
+        return global_efficiency_bin(graph)
+    if outcome == "lcc":
+        return float(largest_component_size(graph))
+    raise ValueError(f"unknown attack outcome {outcome!r}")
+
+
 def _curve_from_order(
     graph: np.ndarray,
     order: np.ndarray,
     eg0: float,
     include_baseline: bool,
+    outcome: str = "efficiency",
 ) -> np.ndarray:
+    """
+    Outcome after isolating nodes in order, normalized by the intact value.
+
+    outcome="efficiency" tracks binary global efficiency; outcome="lcc"
+    tracks the largest connected component size, which does not share the
+    closeness/efficiency term used by CE ranking.
+    """
     n = graph.shape[0]
     curve_len = n + 1 if include_baseline else n
     eglob = np.zeros(curve_len, dtype=np.float64)
@@ -70,7 +86,7 @@ def _curve_from_order(
         node = int(node)
         working[:, node] = 0.0
         working[node, :] = 0.0
-        eglob[step + offset] = global_efficiency_bin(working) / eg0
+        eglob[step + offset] = _attack_outcome(working, outcome) / eg0
     return eglob
 
 
@@ -134,12 +150,13 @@ def compute_attack_by_order(
     directed: bool = False,
     eg0: float | None = None,
     include_baseline: bool = True,
+    outcome: str = "efficiency",
 ) -> np.ndarray:
-    """Compute normalized efficiency after removing nodes in a supplied order."""
+    """Compute the normalized outcome after removing nodes in a supplied order."""
     graph = _prepare_attack_graph(graph_bin, directed=directed)
     if eg0 is None:
-        eg0 = global_efficiency_bin(graph)
-    return _curve_from_order(graph, np.asarray(order, dtype=int), eg0, include_baseline)
+        eg0 = _attack_outcome(graph, outcome)
+    return _curve_from_order(graph, np.asarray(order, dtype=int), eg0, include_baseline, outcome)
 
 
 def compute_attack_curves(

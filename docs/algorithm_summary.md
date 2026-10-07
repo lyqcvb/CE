@@ -163,3 +163,84 @@ uv run python src/step12_fc_heatmaps.py
 - FC stability 重跑结果与论文正文数值一致：LOFC overall matrix correlation 为 0.829，edge CV 为 0.383，stable edge ratio 为 0.337；HOFC 分别为 0.566、0.469、0.222。
 
 跑前关键结果备份位于 `D:\Paper_code\CE_repro_backup_20260529_153050`。49 个关键文件中 45 个哈希完全一致；`output/all_scalar_metrics_summary.csv` 的表格数据内容完全一致但文件序列化哈希不同，3 个 SVG 热图因重生成时间和内部元数据不同而哈希不同，PNG 热图字节一致。
+
+## 9. CAUEEG 复现流程（step14–step21）
+
+2026-10-07 新增。用于在公开 CAUEEG 数据集上从原始 EDF 重做实验，以回应审稿意见。各项参数在运行统计前已写入 `docs/caueeg_analysis_plan.md`。常量集中在 `src/caueeg_config.py`。旧的 16 导联流程（step00–step12）不改变口径。
+
+### 9.1 事件校正与预处理
+
+- **暂停校正**：EDF 不含暂停期间的数据，但事件采样点仍按包含暂停的时间计数。第 \(k\) 次 `Recording Resumed` 之后的事件 \(t\) 校正为
+  $$
+  t' = t - \sum_{m\le k} (t^{\mathrm{resume}}_m - t^{\mathrm{pause}}_m)
+  $$
+  暂停边界 \(t^{\mathrm{pause}}_k - \sum_{m<k}(\cdot)\) 是信号的不连续点，闭眼片段在此处切开。
+- **闭眼可用片段**：取闭眼标记到睁眼标记之间的数据。扣除以下时段：
+  - 闪光刺激；
+  - HV 及其后 30 s；
+  - 睡眠或嗜睡标记，直到下一次眼睛状态标记；
+  - 伪迹标记前后各 1 s；
+  - 电极检查标记前后各 5 s；
+  - 记录末尾 5 s。
+- **坏导、ICA、epoch 选取**：规则见分析计划第 2 节。要点如下：
+  - 平均参考时不纳入坏导；
+  - ICA 成分数等于数据秩；
+  - ICLabel 概率 ≥0.80 的伪迹成分剔除；
+  - 先做 ICA，再插值坏导；
+  - 取前 50 个合格的 2 s epoch。
+
+### 9.2 连接指标
+
+对每个连续片段先做带通滤波（4 阶 Butterworth，SOS 形式的 `sosfiltfilt`，零相位），再做 Hilbert 变换，最后按选中的 epoch 拼接样本。记解析信号为 \(X_i(t)\)。
+
+- **AEC**：\(\operatorname{corr}(|X_i|,|X_j|)\)，网络使用其绝对值。
+- **AEC-c**（Hipp et al., 2012）：先做正交化
+  $$
+  Y_{j\perp i}(t)=\operatorname{Im}\!\left(X_j(t)\,\frac{X_i^*(t)}{|X_i(t)|}\right)
+  $$
+  再计算
+  $$
+  \operatorname{AECc}_{ij}=\tfrac12\left[\operatorname{corr}(|X_i|,|Y_{j\perp i}|)+\operatorname{corr}(|X_j|,|Y_{i\perp j}|)\right]
+  $$
+  网络中负值置 0。
+- **wPLI**（去偏平方，Vinck et al., 2011）：令 \(I_{ij}(t)=\operatorname{Im}(X_i X_j^*)\)，求和遍历全部拼接样本：
+  $$
+  \operatorname{wPLI}^2_{\mathrm{deb}}=\frac{(\sum I)^2-\sum I^2}{(\sum|I|)^2-\sum I^2}
+  $$
+  网络中负值置 0。
+- **signed HOFC（sHOFC）**：
+  $$
+  \operatorname{sHOFC}_{ij}=\operatorname{corr}(z^{s}_{-i,-j,i}, z^{s}_{-i,-j,j})
+  $$
+  其中 \(z^s=\operatorname{arctanh}(\text{signed LOFC})\)，两层都不取绝对值。拓扑指标用其正部；另外报告带符号均值、负边比例和负边均值。原 HOFC 的定义不变，函数为 `compute_topographical_hofc(lofc, signed=False)`。
+
+### 9.3 网络指标
+
+- **零模型**：
+  - 强度保持零模型：Rubinov & Sporns (2011) 的权重重排，权重多重集完全保持，强度序列近似保持，见 `src/network_nulls.py`。
+  - 权重置换零模型。
+  - 二值图使用 Maslov–Sneppen 换边（每条边换 10 次）。
+  - 归一化指标为 \(M/\overline{M}_{\mathrm{null}}\)，每个网络加权零模型 50 个、二值零模型 20 个。
+- **固定密度**：\(d\in\{0.20,\dots,0.40\}\)，19 节点连通所需密度约为 \(\ln n/n\approx0.16\)。零权重边不会被选入。density-AUC 为梯形积分除以 0.20。
+- **攻击**：
+  - 在固定密度图上按 CE、度、介数、接近度、TOPSIS 排序依次移除节点，结局为相对全局效率和相对最大连通分量。
+  - \(\mathrm{AUC}=\frac1N\int_0^N c(k)\,dk\)，取各密度的平均。
+  - `AttackAUCdiff` 为该 AUC 减去随机顺序 AUC（随机顺序 100 次）。
+  - 交叉验证攻击：用一半 epoch 的网络确定节点排序，去攻击另一半 epoch 的网络，再交换两半，取平均。
+  - 效率和 LCC 由同一次 BFS 计算（`attack_curves_both`），与 `compute_attack_by_order` 的结果一致。
+- **最短路**：`_bfs_distance` 改为布尔矩阵乘法的同步 BFS，`_dijkstra_distance` 改为 `scipy.sparse.csgraph.shortest_path`。数值与原实现一致，有测试覆盖。
+
+### 9.4 统计
+
+- **主模型**：每个终点在频段内 z 标准化，然后拟合
+  $$
+  y_{sb}=\beta_0+\beta_{g(s)}+\gamma_b+\delta\,\mathrm{age}_s+u_s+\varepsilon_{sb}, \quad u_s\sim N(0,\sigma_u^2)
+  $$
+  - 实现：statsmodels MixedLM，REML。
+  - 组效应：Wald \(\chi^2\)，自由度 2。
+  - group×band 交互：在另一个模型中单独做 Wald 检验。
+  - 两类检验各自在 8 个主终点内做 BH-FDR。
+- **功率校正**：在主模型中加入该频段 log 绝对功率，或加入 specparam 的 offset 与 exponent。衰减比例定义为 \(1-|\beta_{\mathrm{adj}}|/|\beta|\)。
+- **CE 与介数比较**：
+  - TOST 检验每人 \(\mathrm{AUC}_{CE}-\mathrm{AUC}_{BC}\)，等效界值为 ±0.2×SD(\(\mathrm{AUC}_{BC}\))；
+  - 混合模型检验 group×排序方式的交互。
